@@ -86,10 +86,10 @@ where
             ];
 
             // Decode the Opus packet
-            if self.decoder.decode_float(Some(&pkt), &mut output_buf, false).is_ok() {
-                return Some(output_buf);
+            match self.decoder.decode_float(Some(&pkt), &mut output_buf, false) {
+                Ok(_) => return Some(output_buf),
+                Err(e) => eprintln!("[magnum] decode error, skipping packet: {:?}", e),
             }
-            // Decode failed - continue to next packet
         }
     }
 }
@@ -113,16 +113,8 @@ where
             self.buffer_pos = 0;
             
             match self.get_next_chunk() {
-                Some(chunk) => {
-                    self.buffer = chunk;
-                    // Try to return first sample from new chunk
-                    if let Some(sample) = self.buffer.get(self.buffer_pos) {
-                        self.buffer_pos += 1;
-                        return Some(*sample);
-                    }
-                    // Empty chunk - continue loop to get next
-                }
-                None => return None, // End of stream
+                Some(chunk) => self.buffer = chunk,
+                None => return None,
             }
         }
     }
@@ -141,7 +133,8 @@ where
     }
 
     fn channels(&self) -> std::num::NonZero<u16> {
-        std::num::NonZero::new(self.metadata.channel_count as u16).unwrap()
+        // SAFETY: channel_count is validated to be 1 or 2 when creating OpusSourceCaf
+        unsafe { std::num::NonZero::new_unchecked(self.metadata.channel_count as u16) }
     }
 
     fn sample_rate(&self) -> std::num::NonZero<u32> {
