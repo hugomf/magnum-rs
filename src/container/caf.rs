@@ -134,16 +134,16 @@ impl<T> Source for OpusSourceCaf<T>
 where
     T: Read + Seek,
 {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         Some(self.packet.audio_desc.frames_per_packet as usize)
     }
 
-    fn channels(&self) -> u16 {
-        self.metadata.channel_count as u16
+    fn channels(&self) -> std::num::NonZero<u16> {
+        std::num::NonZero::new(self.metadata.channel_count as u16).unwrap()
     }
 
-    fn sample_rate(&self) -> u32 {
-        self.metadata.sample_rate
+    fn sample_rate(&self) -> std::num::NonZero<u32> {
+        std::num::NonZero::new(self.metadata.sample_rate).unwrap()
     }
 
     fn total_duration(&self) -> Option<std::time::Duration> {
@@ -159,7 +159,7 @@ impl<T> AudioStream for OpusSourceCaf<T>
 where
     T: 'static + Read + Seek + Send + Debug,
 {
-    fn next(&mut self, dt: f64) -> kira::Frame {
+    fn next(&mut self, _dt: f64) -> kira::Frame {
         match self.metadata.channel_count {
             1 => {
                 let l = Iterator::next(self);

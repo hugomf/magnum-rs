@@ -24,7 +24,7 @@ those libraries that *exactly* matches with the one used in this library.
 | Feature      | Adds Support For                            | Version |
 | ------------ | ------------------------------------------- | ------- |
 | `with_kira`  | [Kira](https://github.com/tesselode/kira)   | 0.5.3   |
-| `with_rodio` | [Rodio](https://github.com/RustAudio/rodio) | 0.14.0  |
+| `with_rodio` | [Rodio](https://github.com/RustAudio/rodio) | 0.22    |
 
 ## Example Usage
 

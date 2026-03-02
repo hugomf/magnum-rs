@@ -25,7 +25,7 @@ all = ["with_caf", "with_ogg", "with_rodio", "with_kira"]
 kira = { version = "0.5.3", optional = true }
 caf = { version = "0.1.0", optional = true }
 ogg = { version = "0.8.0", optional = true }
-rodio = { version = "0.14.0", optional = true }
+rodio = { version = "0.22", optional = true }
 audiopus = "0.2.0"
 thiserror = "1.0.24"
 byteorder = "1.4.3"
