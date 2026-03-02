@@ -44,7 +44,7 @@ where
                 Channels::Stereo
             },
         )
-        .unwrap();
+        .map_err(|_| OpusSourceError::InvalidAudioStream)?;
 
         Ok(Self {
             metadata,
@@ -110,23 +110,38 @@ where
      */
 
     fn get_next_chunk(&mut self) -> Option<Vec<f32>> {
-        if let Some(packet) = self.get_next_packet() {
-            let mut toc = BitReader::new(&packet.data[0..1]);
-            let c = toc.read_u8(5).unwrap();
-            let s = toc.read_u8(1).unwrap();
-            //let f = toc.read_u8(2).unwrap();
+        // Loop to skip corrupted/invalid packets and retry
+        loop {
+            let packet = match self.get_next_packet() {
+                Some(p) => p,
+                None => return None, // End of stream
+            };
+            
+            // Validate packet has enough data for TOC byte
+            if packet.data.is_empty() {
+                continue; // Skip empty packets
+            }
 
-            // In milliseconds
-            let frame_size = {
-                match c {
-                    0 | 4 | 8 | 12 | 14 | 18 | 22 | 26 | 30 => 10.0,
-                    1 | 5 | 9 | 13 | 15 | 19 | 23 | 27 | 31 => 20.0,
-                    2 | 6 | 10 => 40.0,
-                    3 | 7 | 11 => 60.0,
-                    16 | 20 | 24 | 28 => 2.5,
-                    17 | 21 | 25 | 29 => 5.0,
-                    _ => panic!("Unsupported frame size"),
-                }
+            // Parse TOC byte
+            let mut toc = BitReader::new(&packet.data[0..1]);
+            let c = match toc.read_u8(5) {
+                Ok(v) => v,
+                Err(_) => continue, // Skip invalid packets
+            };
+            let s = match toc.read_u8(1) {
+                Ok(v) => v,
+                Err(_) => continue, // Skip invalid packets
+            };
+
+            // Get frame size - skip unknown configs gracefully
+            let frame_size = match c {
+                0 | 4 | 8 | 12 | 14 | 18 | 22 | 26 | 30 => 10.0,
+                1 | 5 | 9 | 13 | 15 | 19 | 23 | 27 | 31 => 20.0,
+                2 | 6 | 10 => 40.0,
+                3 | 7 | 11 => 60.0,
+                16 | 20 | 24 | 28 => 2.5,
+                17 | 21 | 25 | 29 => 5.0,
+                _ => continue, // Unknown config - skip packet and try next
             };
 
             let mut output_buf: Vec<f32> = vec![
@@ -136,15 +151,11 @@ where
                     as usize
             ];
 
-            // Decode the Opus packet (output_buf is filled in-place)
-            // Returns Ok(sample_count) or Err
+            // Decode the Opus packet
             if self.decoder.decode_float(Some(&packet.data), &mut output_buf, false).is_ok() {
-                Some(output_buf)
-            } else {
-                None // Decode error - return None gracefully
+                return Some(output_buf);
             }
-        } else {
-            None
+            // Decode failed - continue to next packet
         }
     }
 }
@@ -156,33 +167,30 @@ where
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // If we're out of data (or haven't started) then load a chunk of data into our buffer
-        if self.buffer.is_empty() {
-            if let Some(chunk) = self.get_next_chunk() {
-                self.buffer = chunk;
-                self.buffer_pos = 0;
-            }
-        }
-        
-        // If we have data in the buffer, return the next sample
-        if let Some(sample) = self.buffer.get(self.buffer_pos) {
-            self.buffer_pos += 1;
-            return Some(*sample);
-        }
-        
-        // Buffer exhausted, try to load more data
-        self.buffer.clear();
-        self.buffer_pos = 0;
-        
-        if let Some(chunk) = self.get_next_chunk() {
-            self.buffer = chunk;
+        loop {
+            // If we have data in the buffer, return the next sample
             if let Some(sample) = self.buffer.get(self.buffer_pos) {
                 self.buffer_pos += 1;
                 return Some(*sample);
             }
+            
+            // Buffer exhausted, try to load more data
+            self.buffer.clear();
+            self.buffer_pos = 0;
+            
+            match self.get_next_chunk() {
+                Some(chunk) => {
+                    self.buffer = chunk;
+                    // Try to return first sample from new chunk
+                    if let Some(sample) = self.buffer.get(self.buffer_pos) {
+                        self.buffer_pos += 1;
+                        return Some(*sample);
+                    }
+                    // Empty chunk - continue loop to get next
+                }
+                None => return None, // End of stream
+            }
         }
-        
-        None
     }
 }
 

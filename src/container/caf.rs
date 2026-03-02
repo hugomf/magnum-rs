@@ -45,7 +45,6 @@ where
         if let caf::FormatType::Other(code) = packet.audio_desc.format_id {
             // Opus inside Caf uses a custom "other" code/id
             if code == 1869641075 {
-                //println!("{:?}", packet.audio_desc);
                 let decoder = Decoder::new(
                     audiopus::SampleRate::Hz48000,
                     if packet.audio_desc.channels_per_frame == 1 {
@@ -54,7 +53,7 @@ where
                         Channels::Stereo
                     },
                 )
-                .unwrap();
+                .map_err(|_| OpusSourceError::InvalidAudioStream)?;
 
                 Ok(Self {
                     metadata,
@@ -72,24 +71,25 @@ where
     }
 
     fn get_next_chunk(&mut self) -> Option<Vec<f32>> {
-        match self.packet.next_packet() {
-            Ok(Some(pkt)) => {
-                let mut output_buf: Vec<f32> = vec![
-                    0.0;
-                    (self.packet.audio_desc.frames_per_packet * self.metadata.channel_count as u32)
-                        as usize
-                ];
-                
-                // Decode the Opus packet (output_buf is filled in-place)
-                // Returns Ok(sample_count) or Err
-                if self.decoder.decode_float(Some(&pkt), &mut output_buf, false).is_ok() {
-                    Some(output_buf)
-                } else {
-                    None // Decode error - return None gracefully
-                }
+        // Loop to skip corrupted packets and retry
+        loop {
+            let pkt = match self.packet.next_packet() {
+                Ok(Some(p)) => p,
+                Ok(None) => return None, // End of stream
+                Err(_) => return None,   // IO error
+            };
+
+            let mut output_buf: Vec<f32> = vec![
+                0.0;
+                (self.packet.audio_desc.frames_per_packet * self.metadata.channel_count as u32)
+                    as usize
+            ];
+
+            // Decode the Opus packet
+            if self.decoder.decode_float(Some(&pkt), &mut output_buf, false).is_ok() {
+                return Some(output_buf);
             }
-            Ok(None) => None, // End of stream
-            Err(_) => None,   // IO error - return None gracefully
+            // Decode failed - continue to next packet
         }
     }
 }
@@ -101,33 +101,30 @@ where
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // If we're out of data (or haven't started) then load a chunk of data into our buffer
-        if self.buffer.is_empty() {
-            if let Some(chunk) = self.get_next_chunk() {
-                self.buffer = chunk;
-                self.buffer_pos = 0;
-            }
-        }
-        
-        // If we have data in the buffer, return the next sample
-        if let Some(sample) = self.buffer.get(self.buffer_pos) {
-            self.buffer_pos += 1;
-            return Some(*sample);
-        }
-        
-        // Buffer exhausted, try to load more data
-        self.buffer.clear();
-        self.buffer_pos = 0;
-        
-        if let Some(chunk) = self.get_next_chunk() {
-            self.buffer = chunk;
+        loop {
+            // If we have data in the buffer, return the next sample
             if let Some(sample) = self.buffer.get(self.buffer_pos) {
                 self.buffer_pos += 1;
                 return Some(*sample);
             }
+            
+            // Buffer exhausted, try to load more data
+            self.buffer.clear();
+            self.buffer_pos = 0;
+            
+            match self.get_next_chunk() {
+                Some(chunk) => {
+                    self.buffer = chunk;
+                    // Try to return first sample from new chunk
+                    if let Some(sample) = self.buffer.get(self.buffer_pos) {
+                        self.buffer_pos += 1;
+                        return Some(*sample);
+                    }
+                    // Empty chunk - continue loop to get next
+                }
+                None => return None, // End of stream
+            }
         }
-        
-        None
     }
 }
 
