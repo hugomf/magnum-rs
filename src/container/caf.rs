@@ -72,24 +72,24 @@ where
     }
 
     fn get_next_chunk(&mut self) -> Option<Vec<f32>> {
-        if let Ok(pkt) = self.packet.next_packet() {
-            if let Some(pkt) = pkt {
+        match self.packet.next_packet() {
+            Ok(Some(pkt)) => {
                 let mut output_buf: Vec<f32> = vec![
                     0.0;
                     (self.packet.audio_desc.frames_per_packet * self.metadata.channel_count as u32)
                         as usize
                 ];
-                //println!("CAF pkt {:X?} ({})", pkt, pkt.len());
-                self.decoder
-                    .decode_float(Some(&pkt), &mut output_buf, false)
-                    .unwrap();
-
-                Some(output_buf)
-            } else {
-                None
+                
+                // Decode the Opus packet (output_buf is filled in-place)
+                // Returns Ok(sample_count) or Err
+                if self.decoder.decode_float(Some(&pkt), &mut output_buf, false).is_ok() {
+                    Some(output_buf)
+                } else {
+                    None // Decode error - return None gracefully
+                }
             }
-        } else {
-            None
+            Ok(None) => None, // End of stream
+            Err(_) => None,   // IO error - return None gracefully
         }
     }
 }
@@ -102,27 +102,32 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         // If we're out of data (or haven't started) then load a chunk of data into our buffer
-        if self.buffer.len() == 0 {
+        if self.buffer.is_empty() {
             if let Some(chunk) = self.get_next_chunk() {
-                //println!("Loading chunk");
                 self.buffer = chunk;
-                // Reset the read counter
                 self.buffer_pos = 0;
             }
         }
-        // Assuming there's data now we can read it using our counter
-        if self.buffer.len() > 0 {
+        
+        // If we have data in the buffer, return the next sample
+        if let Some(sample) = self.buffer.get(self.buffer_pos) {
             self.buffer_pos += 1;
-            if self.buffer_pos > self.buffer.len() {
-                //println!("End of data chunk");
-                self.buffer.clear();
-                return self.next();
-            } else {
-                //println!("Found data {}", self.count);
-                return Some(self.buffer[self.buffer_pos - 1]);
+            return Some(*sample);
+        }
+        
+        // Buffer exhausted, try to load more data
+        self.buffer.clear();
+        self.buffer_pos = 0;
+        
+        if let Some(chunk) = self.get_next_chunk() {
+            self.buffer = chunk;
+            if let Some(sample) = self.buffer.get(self.buffer_pos) {
+                self.buffer_pos += 1;
+                return Some(*sample);
             }
         }
-        return None;
+        
+        None
     }
 }
 

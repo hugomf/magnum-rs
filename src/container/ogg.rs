@@ -56,16 +56,32 @@ where
     }
 
     /// Read the next Ogg packet.
-    /// Return Some(packet), or None if at end of stream.
+    /// Return Some(packet), or None if at end of stream or IO error.
     fn get_next_packet(&mut self) -> Option<ogg::Packet> {
-        while let Ok(packet) = self.packet.read_packet_expected() {
-            // Ignore invalid but harmless 0-byte packets that some 
-            // encoders sometimes generate at the end of a stream.
-            if packet.data.len() > 0 {
-                return Some(packet);
+        loop {
+            match self.packet.read_packet_expected() {
+                Ok(packet) => {
+                    // Ignore invalid but harmless 0-byte packets that some 
+                    // encoders sometimes generate at the end of a stream.
+                    if !packet.data.is_empty() {
+                        return Some(packet);
+                    }
+                    // Continue to next packet
+                }
+                Err(ogg::OggReadError::ReadError(_)) => {
+                    // IO error - return None
+                    return None;
+                }
+                Err(ogg::OggReadError::NoCapturePatternFound) => {
+                    // End of stream - return None
+                    return None;
+                }
+                Err(_) => {
+                    // Other errors (InvalidData, HashMismatch, InvalidStreamStructVer) - return None
+                    return None;
+                }
             }
         }
-        None
     }
 
     /* FRAME SIZE Reference
@@ -120,11 +136,13 @@ where
                     as usize
             ];
 
-            self.decoder
-                .decode_float(Some(&packet.data), &mut output_buf, false)
-                .unwrap();
-
-            Some(output_buf)
+            // Decode the Opus packet (output_buf is filled in-place)
+            // Returns Ok(sample_count) or Err
+            if self.decoder.decode_float(Some(&packet.data), &mut output_buf, false).is_ok() {
+                Some(output_buf)
+            } else {
+                None // Decode error - return None gracefully
+            }
         } else {
             None
         }
@@ -139,27 +157,32 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         // If we're out of data (or haven't started) then load a chunk of data into our buffer
-        if self.buffer.len() == 0 {
+        if self.buffer.is_empty() {
             if let Some(chunk) = self.get_next_chunk() {
-                //println!("Loading chunk");
                 self.buffer = chunk;
-                // Reset the read counter
                 self.buffer_pos = 0;
             }
         }
-        // Assuming there's data now we can read it using our counter
-        if self.buffer.len() > 0 {
+        
+        // If we have data in the buffer, return the next sample
+        if let Some(sample) = self.buffer.get(self.buffer_pos) {
             self.buffer_pos += 1;
-            if self.buffer_pos > self.buffer.len() {
-                //println!("End of data chunk");
-                self.buffer.clear();
-                return self.next();
-            } else {
-                //println!("Found data {}", self.count);
-                return Some(self.buffer[self.buffer_pos - 1]);
+            return Some(*sample);
+        }
+        
+        // Buffer exhausted, try to load more data
+        self.buffer.clear();
+        self.buffer_pos = 0;
+        
+        if let Some(chunk) = self.get_next_chunk() {
+            self.buffer = chunk;
+            if let Some(sample) = self.buffer.get(self.buffer_pos) {
+                self.buffer_pos += 1;
+                return Some(*sample);
             }
         }
-        return None;
+        
+        None
     }
 }
 
