@@ -1,6 +1,7 @@
 use crate::error::OpusSourceError;
 use byteorder::{ByteOrder, LittleEndian};
 
+#[derive(Debug)]
 pub struct OpusMeta {
     pub sample_rate: u32,
     pub channel_count: u8,

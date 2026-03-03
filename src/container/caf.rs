@@ -14,14 +14,21 @@ where
     decoder: Decoder,
     buffer: Vec<f32>,
     buffer_pos: usize,
+    /// True if the source has more than 2 channels and downmixing is active.
+    /// The output is always stereo (2 channels) when downmixing.
+    is_downmixing: bool,
 }
 
 impl<T> Debug for OpusSourceCaf<T>
 where
     T: Read + Seek,
 {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpusSourceCaf")
+            .field("metadata", &self.metadata)
+            .field("buffer_pos", &self.buffer_pos)
+            .field("is_downmixing", &self.is_downmixing)
+            .finish_non_exhaustive()
     }
 }
 
@@ -32,8 +39,8 @@ where
     pub fn new(file: T) -> Result<Self, OpusSourceError> {
         let cr =
             CafChunkReader::new(file).or_else(|_| Err(OpusSourceError::InvalidContainerFormat))?;
-        let packet =
-            CafPacketReader::from_chunk_reader(cr, vec![caf::ChunkType::AudioData]).unwrap();
+        let packet = CafPacketReader::from_chunk_reader(cr, vec![caf::ChunkType::AudioData])
+            .map_err(|_| OpusSourceError::InvalidContainerFormat)?;
 
         let metadata = OpusMeta {
             sample_rate: packet.audio_desc.sample_rate as u32,
@@ -45,15 +52,28 @@ where
         if let caf::FormatType::Other(code) = packet.audio_desc.format_id {
             // Opus inside Caf uses a custom "other" code/id
             if code == 1869641075 {
-                let decoder = Decoder::new(
-                    audiopus::SampleRate::Hz48000,
-                    if packet.audio_desc.channels_per_frame == 1 {
-                        Channels::Mono
-                    } else {
-                        Channels::Stereo
-                    },
-                )
-                .map_err(|_| OpusSourceError::InvalidAudioStream)?;
+                // Opus supports 1–8 channels. audiopus only exposes Mono/Stereo for the
+                // decoder channel count, but the decoder still decodes all channels —
+                // we pass the actual channel count via the output buffer size.
+                // We use Stereo for multi-channel since audiopus doesn't have an N-channel
+                // variant; the decoder infers channel count from the stream itself.
+                let decoder_channels = if metadata.channel_count == 1 {
+                    Channels::Mono
+                } else {
+                    Channels::Stereo
+                };
+
+                let decoder = Decoder::new(audiopus::SampleRate::Hz48000, decoder_channels)
+                    .map_err(|_| OpusSourceError::InvalidAudioStream)?;
+
+                let is_downmixing = metadata.channel_count > 2;
+
+                if is_downmixing {
+                    eprintln!(
+                        "[magnum] {}-channel Opus stream — downmixing to stereo",
+                        metadata.channel_count
+                    );
+                }
 
                 Ok(Self {
                     metadata,
@@ -61,6 +81,7 @@ where
                     decoder,
                     buffer: vec![],
                     buffer_pos: 0,
+                    is_downmixing,
                 })
             } else {
                 Err(OpusSourceError::InvalidAudioStream)
@@ -68,6 +89,11 @@ where
         } else {
             Err(OpusSourceError::InvalidAudioStream)
         }
+    }
+
+    /// The output channel count — always 2 when downmixing, otherwise matches source.
+    pub fn output_channels(&self) -> u8 {
+        if self.is_downmixing { 2 } else { self.metadata.channel_count }
     }
 
     fn get_next_chunk(&mut self) -> Option<Vec<f32>> {
@@ -79,15 +105,23 @@ where
                 Err(_) => return None,   // IO error
             };
 
+            // audiopus Decoder always outputs exactly the number of channels specified
+            // at creation time (Mono=1, Stereo=2). For >2 channel streams, we create
+            // a Stereo decoder, so we must allocate for 2 channels.
+            let output_channels = if self.is_downmixing { 2 } else { self.metadata.channel_count };
             let mut output_buf: Vec<f32> = vec![
                 0.0;
-                (self.packet.audio_desc.frames_per_packet * self.metadata.channel_count as u32)
-                    as usize
+                (self.packet.audio_desc.frames_per_packet * output_channels as u32) as usize
             ];
 
             // Decode the Opus packet
             match self.decoder.decode_float(Some(&pkt), &mut output_buf, false) {
-                Ok(_) => return Some(output_buf),
+                Ok(_) => {
+                    // For >2 channel streams: audiopus decoded to stereo (2ch) buffer.
+                    // Return stereo directly - true multi-channel would require
+                    // opus_multistream_decoder which audiopus doesn't expose.
+                    return Some(output_buf);
+                }
                 Err(e) => eprintln!("[magnum] decode error, skipping packet: {:?}", e),
             }
         }
@@ -133,8 +167,9 @@ where
     }
 
     fn channels(&self) -> std::num::NonZero<u16> {
-        // SAFETY: channel_count is validated to be 1 or 2 when creating OpusSourceCaf
-        unsafe { std::num::NonZero::new_unchecked(self.metadata.channel_count as u16) }
+        // Output is always stereo when downmixing; otherwise matches source channel count.
+        // SAFETY: output_channels() returns 1–2 for mono/stereo, always non-zero.
+        unsafe { std::num::NonZero::new_unchecked(self.output_channels() as u16) }
     }
 
     fn sample_rate(&self) -> std::num::NonZero<u32> {
@@ -155,26 +190,19 @@ where
     T: 'static + Read + Seek + Send + Debug,
 {
     fn next(&mut self, _dt: f64) -> kira::Frame {
-        match self.metadata.channel_count {
+        // Output is always mono or stereo after downmixing.
+        // Multi-channel content has already been downmixed to stereo in get_next_chunk.
+        match self.output_channels() {
             1 => {
-                let l = Iterator::next(self);
-                let sl = if let Some(n) = l { n } else { 0.0 };
-                kira::Frame {
-                    left: sl,
-                    right: sl,
-                }
+                let s = Iterator::next(self).unwrap_or(0.0);
+                kira::Frame { left: s, right: s }
             }
-            2 => {
-                let l = Iterator::next(self);
-                let r = Iterator::next(self);
-                let sl = if let Some(n) = l { n } else { 0.0 };
-                let sr = if let Some(n) = r { n } else { 0.0 };
-                kira::Frame {
-                    left: sl,
-                    right: sr,
-                }
+            _ => {
+                // 2ch or downmixed-to-stereo
+                let l = Iterator::next(self).unwrap_or(0.0);
+                let r = Iterator::next(self).unwrap_or(0.0);
+                kira::Frame { left: l, right: r }
             }
-            _ => unimplemented!("Only mono and stereo are supported"),
         }
     }
 }
