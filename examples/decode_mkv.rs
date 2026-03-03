@@ -1,7 +1,7 @@
 #[cfg(feature = "with_mkv")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check if a file path was provided
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = std::env::args().collect();
     if args.len() != 2 {
         eprintln!("Usage: {} <mkv_file_path>", args[0]);
         std::process::exit(1);
@@ -11,8 +11,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Decoding MKV file: {}", file_path);
 
     // Open the file
-    let file = File::open(file_path)?;
-    let mut reader = BufReader::new(file);
+    let file = std::fs::File::open(file_path)?;
+    let mut reader = std::io::BufReader::new(file);
 
     // Check if it's an MKV file
     match magnum::is_mkv_stream(&mut reader) {
