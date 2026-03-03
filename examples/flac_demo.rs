@@ -8,8 +8,7 @@
 //! - Integrate with audio engines
 
 use std::fs::File;
-use std::io::{BufReader, Cursor};
-use std::time::Duration;
+use std::io::BufReader;
 
 // Import the FLAC source directly from the container module (only available with with_flac feature)
 #[cfg(feature = "with_flac")]
@@ -38,26 +37,33 @@ fn demo_basic_flac_processing() -> Result<(), Box<dyn std::error::Error>> {
     println!("1. Basic FLAC File Processing");
     println!("--------------------------------");
 
-    // In a real application, you would open an actual FLAC file:
-    // let file = File::open("path/to/audio.flac")?;
-    // let reader = BufReader::new(file);
-    // let mut flac_source = FlacSource::new(reader)?;
+    // Try to use a real test FLAC file first
+    let test_flac_path = "/Users/hugo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/flac-0.5.0/tests/assets/input-SCPAP.flac";
+    
+    match File::open(test_flac_path) {
+        Ok(file) => {
+            let reader = BufReader::new(file);
+            let mut flac_source = FlacSource::new(reader)?;
+            
+            println!("✓ FLAC source created successfully from test file");
+            println!("  Sample rate: {} Hz", flac_source.metadata.sample_rate);
+            println!("  Channel count: {}", flac_source.metadata.channel_count);
+            println!("  Output channels: {}", flac_source.output_channels());
+            println!("  Downmixing active: {}", flac_source.is_downmixing);
 
-    // For this demo, we'll use mock data to show the API structure
-    let mock_flac_data = create_mock_flac_data();
-    let cursor = Cursor::new(mock_flac_data);
-    let mut flac_source = FlacSource::new(cursor)?;
-
-    println!("✓ FLAC source created successfully");
-    println!("  Sample rate: {} Hz", flac_source.metadata.sample_rate);
-    println!("  Channel count: {}", flac_source.metadata.channel_count);
-    println!("  Output channels: {}", flac_source.output_channels());
-    println!("  Downmixing active: {}", flac_source.is_downmixing);
-
-    // Process first few samples
-    println!("  First 10 samples:");
-    for (i, sample) in flac_source.by_ref().take(10).enumerate() {
-        println!("    Sample {}: {:.6}", i + 1, sample);
+            // Process first few samples
+            println!("  First 10 samples:");
+            for (i, sample) in flac_source.by_ref().take(10).enumerate() {
+                println!("    Sample {}: {:.6}", i + 1, sample);
+            }
+        }
+        Err(_) => {
+            // Fallback to a simple message if no test file available
+            println!("  Note: No test FLAC file available for this demo.");
+            println!("  To test with real FLAC files, use the decode_flac example:");
+            println!("  cargo run --example decode_flac --features with_flac");
+            println!("  And create a FLAC file with: ffmpeg -f lavfi -i \"sine=frequency=440:duration=5\" -c:a flac example.flac");
+        }
     }
 
     println!();
@@ -78,25 +84,36 @@ fn demo_downmixing() -> Result<(), Box<dyn std::error::Error>> {
     println!("2. Multi-channel Audio Downmixing");
     println!("----------------------------------");
 
-    // Simulate a 5.1 surround sound FLAC file
-    let mock_51_data = create_mock_multichannel_data(6); // 6 channels = 5.1
-    let cursor = Cursor::new(mock_51_data);
-    let mut flac_source = FlacSource::new(cursor)?;
+    // Try to use a real test FLAC file that might be multi-channel
+    let test_flac_path = "example.flac";
+    
+    match File::open(test_flac_path) {
+        Ok(file) => {
+            let reader = BufReader::new(file);
+            let mut flac_source = FlacSource::new(reader)?;
+            
+            println!("✓ FLAC source created successfully");
+            println!("  Original channels: {}", flac_source.metadata.channel_count);
+            println!("  Output channels: {}", flac_source.output_channels());
+            println!("  Downmixing active: {}", flac_source.is_downmixing);
 
-    println!("✓ 5.1 surround sound FLAC source created");
-    println!("  Original channels: {}", flac_source.metadata.channel_count);
-    println!("  Output channels: {}", flac_source.output_channels());
-    println!("  Downmixing active: {}", flac_source.is_downmixing);
+            // Show how downmixing works
+            println!("  Downmixing algorithm:");
+            println!("    - Odd channels (1,3,5) -> Left channel");
+            println!("    - Even channels (2,4,6) -> Right channel");
+            println!("    - Volume normalized by channel count");
 
-    // Show how downmixing works
-    println!("  Downmixing algorithm:");
-    println!("    - Odd channels (1,3,5) -> Left channel");
-    println!("    - Even channels (2,4,6) -> Right channel");
-    println!("    - Volume normalized by channel count");
-
-    // Process some samples to demonstrate downmixing
-    let samples: Vec<f32> = flac_source.by_ref().take(8).collect();
-    println!("  Processed {} samples (downmixed to stereo)", samples.len());
+            // Process some samples to demonstrate downmixing
+            let samples: Vec<f32> = flac_source.by_ref().take(8).collect();
+            println!("  Processed {} samples (downmixed to stereo)", samples.len());
+        }
+        Err(_) => {
+            println!("  Note: No test FLAC file available for downmixing demo.");
+            println!("  To test downmixing with real multi-channel FLAC files:");
+            println!("  1. Create a 6-channel FLAC file: ffmpeg -f lavfi -i \"sine=frequency=440:duration=5\" -ac 6 -c:a flac example_6ch.flac");
+            println!("  2. Run: cargo run --example decode_flac --features with_flac");
+        }
+    }
 
     println!();
     Ok(())
@@ -116,34 +133,44 @@ fn demo_audio_engine_integration() -> Result<(), Box<dyn std::error::Error>> {
     println!("3. Audio Engine Integration");
     println!("----------------------------");
 
-    let mock_data = create_mock_flac_data();
-    let cursor = Cursor::new(mock_data);
+    // Try to use a real test FLAC file
+    let test_flac_path = "/Users/hugo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/flac-0.5.0/tests/assets/input-SCPAP.flac";
+    
+    match File::open(test_flac_path) {
+        Ok(file) => {
+            let reader = BufReader::new(file);
+            let _flac_source = FlacSource::new(reader)?;
 
-    // Create FLAC source
-    let flac_source = FlacSource::new(cursor)?;
+            // Show integration capabilities
+            println!("✓ FLAC source ready for audio engines");
 
-    // Show integration capabilities
-    println!("✓ FLAC source ready for audio engines");
+            #[cfg(feature = "with_rodio")]
+            {
+                println!("  Rodio integration:");
+                println!("    - Implements rodio::source::Source trait");
+                println!("    - Can be used directly with rodio audio engine");
+                println!("    - Supports streaming playback");
+            }
 
-    #[cfg(feature = "with_rodio")]
-    {
-        println!("  Rodio integration:");
-        println!("    - Implements rodio::source::Source trait");
-        println!("    - Can be used directly with rodio audio engine");
-        println!("    - Supports streaming playback");
-    }
+            #[cfg(feature = "with_kira")]
+            {
+                println!("  Kira integration:");
+                println!("    - Implements kira::audio_stream::AudioStream trait");
+                println!("    - Can be used directly with kira audio engine");
+                println!("    - Supports real-time audio processing");
+            }
 
-    #[cfg(feature = "with_kira")]
-    {
-        println!("  Kira integration:");
-        println!("    - Implements kira::audio_stream::AudioStream trait");
-        println!("    - Can be used directly with kira audio engine");
-        println!("    - Supports real-time audio processing");
-    }
-
-    #[cfg(not(any(feature = "with_rodio", feature = "with_kira")))]
-    {
-        println!("  Note: Enable with_rodio or with_kira features for audio engine integration");
+            #[cfg(not(any(feature = "with_rodio", feature = "with_kira")))]
+            {
+                println!("  Note: Enable with_rodio or with_kira features for audio engine integration");
+            }
+        }
+        Err(_) => {
+            println!("  Note: No test FLAC file available for integration demo.");
+            println!("  To test with real FLAC files and audio engines:");
+            println!("  1. Create a FLAC file: ffmpeg -f lavfi -i \"sine=frequency=440:duration=5\" -c:a flac example.flac");
+            println!("  2. Enable audio engine features: cargo run --example decode_flac --features with_flac,with_rodio");
+        }
     }
 
     println!();
@@ -164,34 +191,46 @@ fn demo_custom_processing() -> Result<(), Box<dyn std::error::Error>> {
     println!("4. Custom Audio Processing");
     println!("---------------------------");
 
-    let mock_data = create_mock_flac_data();
-    let cursor = Cursor::new(mock_data);
-    let mut flac_source = FlacSource::new(cursor)?;
+    // Try to use a real test FLAC file
+    let test_flac_path = "/Users/hugo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/flac-0.5.0/tests/assets/input-SCPAP.flac";
+    
+    match File::open(test_flac_path) {
+        Ok(file) => {
+            let reader = BufReader::new(file);
+            let mut flac_source = FlacSource::new(reader)?;
 
-    println!("✓ Custom audio processing demo");
+            println!("✓ Custom audio processing demo");
 
-    // Calculate audio statistics
-    let mut sample_count = 0;
-    let mut sum = 0.0f32;
-    let mut max_abs = 0.0f32;
+            // Calculate audio statistics
+            let mut sample_count = 0;
+            let mut sum = 0.0f32;
+            let mut max_abs = 0.0f32;
 
-    // Process samples and calculate statistics
-    for sample in flac_source.by_ref().take(1000) {
-        sample_count += 1;
-        sum += sample;
-        max_abs = max_abs.max(sample.abs());
+            // Process samples and calculate statistics
+            for sample in flac_source.by_ref().take(1000) {
+                sample_count += 1;
+                sum += sample;
+                max_abs = max_abs.max(sample.abs());
+            }
+
+            let average = if sample_count > 0 { sum / sample_count as f32 } else { 0.0 };
+
+            println!("  Processed {} samples", sample_count);
+            println!("  Average amplitude: {:.6}", average);
+            println!("  Peak amplitude: {:.6}", max_abs);
+            println!("  Sample rate: {} Hz", flac_source.metadata.sample_rate);
+
+            // Calculate duration
+            let duration_seconds = sample_count as f64 / flac_source.metadata.sample_rate as f64;
+            println!("  Duration: {:.2} seconds", duration_seconds);
+        }
+        Err(_) => {
+            println!("  Note: No test FLAC file available for custom processing demo.");
+            println!("  To test custom processing with real FLAC files:");
+            println!("  1. Create a FLAC file: ffmpeg -f lavfi -i \"sine=frequency=440:duration=5\" -c:a flac example.flac");
+            println!("  2. Run: cargo run --example decode_flac --features with_flac");
+        }
     }
-
-    let average = if sample_count > 0 { sum / sample_count as f32 } else { 0.0 };
-
-    println!("  Processed {} samples", sample_count);
-    println!("  Average amplitude: {:.6}", average);
-    println!("  Peak amplitude: {:.6}", max_abs);
-    println!("  Sample rate: {} Hz", flac_source.metadata.sample_rate);
-
-    // Calculate duration
-    let duration_seconds = sample_count as f64 / flac_source.metadata.sample_rate as f64;
-    println!("  Duration: {:.2} seconds", duration_seconds);
 
     println!();
     Ok(())
@@ -206,51 +245,3 @@ fn demo_custom_processing() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// Helper functions to create mock data for demonstration
-
-fn create_mock_flac_data() -> Vec<u8> {
-    // Create mock FLAC data (not actual FLAC, just for API demonstration)
-    vec![
-        0x66, 0x4C, 0x61, 0x43, // FLAC signature
-        0x00, 0x00, 0x00, 0x00, // Mock header data
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-    ]
-}
-
-fn create_mock_multichannel_data(channels: u8) -> Vec<u8> {
-    // Create mock multi-channel audio data
-    let mut data = vec![
-        0x66, 0x4C, 0x61, 0x43, // FLAC signature
-        0x00, 0x00, 0x00, 0x00, // Mock header with channel info
-    ];
-    
-    // Add channel count to mock data
-    data.push(channels);
-    data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-    
-    data
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_mock_data_creation() {
-        let data = create_mock_flac_data();
-        assert!(data.len() > 0);
-        assert_eq!(data[0], 0x66); // 'f'
-        assert_eq!(data[1], 0x4C); // 'L'
-        assert_eq!(data[2], 0x61); // 'a'
-        assert_eq!(data[3], 0x43); // 'C'
-    }
-
-    #[test]
-    fn test_multichannel_data_creation() {
-        let data = create_mock_multichannel_data(6);
-        assert!(data.len() > 0);
-        assert_eq!(data[8], 6); // Channel count
-    }
-}

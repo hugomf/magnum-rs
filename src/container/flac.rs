@@ -96,22 +96,29 @@ where
     
     /// Decode more samples from the stream
     fn decode_more(&mut self) -> Option<()> {
-        // The flac crate iter returns Extended type based on SampleSize:
-        // iter::<i8>() -> Iterator<Item=i16>
-        // iter::<i16>() -> Iterator<Item=i32>
-        // iter::<i32>() -> Iterator<Item=i64>
-        // We use i16 to get i32 which covers up to 24-bit audio
-        
-        // Use a limit to prevent infinite loops with invalid streams
+        // Use a more controlled approach to prevent hanging
         let mut decoded = Vec::new();
-        let max_frames = 100; // Limit to prevent hanging
+        let mut frame_count = 0;
+        let max_frames = 10; // Limit frames per call to prevent hanging
         
-        for (i, sample) in self.stream.iter::<i16>().enumerate() {
-            if i >= max_frames * 4096 {
-                // Reached limit - stop decoding
-                break;
+        // Try to decode a limited number of frames
+        let mut iter = self.stream.iter::<i16>();
+        
+        while frame_count < max_frames {
+            match iter.next() {
+                Some(sample) => {
+                    decoded.push(sample as i32);
+                    // Limit the number of samples to prevent memory issues
+                    if decoded.len() >= 4096 {
+                        break;
+                    }
+                }
+                None => {
+                    // End of stream or error
+                    break;
+                }
             }
-            decoded.push(sample as i32);
+            frame_count += 1;
         }
         
         if decoded.is_empty() {
@@ -121,7 +128,7 @@ where
         if self.is_downmixing {
             // Downmix to stereo
             let frames = decoded.len() / self.channels as usize;
-            self.samples.reserve(frames * 2);
+            let mut new_samples = Vec::with_capacity(frames * 2);
             
             for frame in 0..frames {
                 let mut left = 0.0f32;
@@ -129,25 +136,27 @@ where
                 
                 for ch in 0..self.channels {
                     let idx = frame * self.channels as usize + ch as usize;
-                    let sample = self.to_f32(decoded[idx]);
-                    
-                    if ch % 2 == 0 {
-                        left += sample;
-                    } else {
-                        right += sample;
+                    if idx < decoded.len() {
+                        let sample = self.to_f32(decoded[idx]);
+                        
+                        if ch % 2 == 0 {
+                            left += sample;
+                        } else {
+                            right += sample;
+                        }
                     }
                 }
                 
                 // Average
                 let ch_count = self.channels as f32;
-                self.samples.push(left / ch_count);
-                self.samples.push(right / ch_count);
+                new_samples.push(left / ch_count);
+                new_samples.push(right / ch_count);
             }
+            
+            self.samples = new_samples;
         } else {
             // No downmixing
-            self.samples = decoded.iter()
-                .map(|&s| self.to_f32(s))
-                .collect();
+            self.samples = decoded.iter().map(|&s| self.to_f32(s)).collect();
         }
         
         self.position = 0;
@@ -178,9 +187,9 @@ where
         self.decode_more()?;
         
         // Return first sample from new buffer
-        if self.position < self.samples.len() {
-            let sample = self.samples[self.position];
-            self.position += 1;
+        if !self.samples.is_empty() {
+            let sample = self.samples[0];
+            self.position = 1;
             Some(sample)
         } else {
             None
