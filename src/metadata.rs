@@ -14,50 +14,59 @@ impl OpusMeta {
         id_header: Vec<u8>,
         comment_header: Vec<u8>,
     ) -> Result<Self, OpusSourceError> {
-        //println!("First packet: {:#X?}", id_header);
-        let magic = String::from_utf8((&id_header[0..8]).to_vec()).unwrap();
-        if !magic.eq("OpusHead") {
+        // Validate id_header length
+        if id_header.len() < 19 {
             return Err(OpusSourceError::InvalidHeaderData);
         }
 
-        let _version = &id_header[8];
-        //println!("Version: {}", version);
-        let channels = &id_header[9];
-        //println!("Channels: {}", channels);
-        let preskip = &id_header[10..12];
-        let preskip = LittleEndian::read_u16(&preskip);
-        //println!("Pre-Skip: {}", preskip);
-        let sr = &id_header[12..16];
-        let _pre_enc_sample_rate = LittleEndian::read_u32(&sr);
-        //println!("Original Sample Rate: {}", pre_enc_sample_rate);
-        let og = &id_header[16..18];
-        let output_gain = LittleEndian::read_i16(&og);
-        //println!("Output Gain: {}", output_gain);
-        let _channel_mapping_family = &id_header[18];
-        //println!("Channel Mapping Family: {:?}", channel_mapping_family);
-        // If family is non-zero then there can be more to read
-
-        //println!("Second packet: {:#X?}", t);
-        let magic = String::from_utf8((&comment_header[0..8]).to_vec()).unwrap();
-        if !magic.eq("OpusTags") {
+        // Check magic bytes for id header
+        if id_header[0..8] != *b"OpusHead" {
             return Err(OpusSourceError::InvalidHeaderData);
         }
 
-        let vs_len = &comment_header[8..12];
-        let vs_len = LittleEndian::read_u32(vs_len);
-        //println!("Vendor String Len: {}", vs_len);
+        let _version = id_header[8];
+        let channels = id_header[9];
+        let preskip = LittleEndian::read_u16(&id_header[10..12]);
+        let _pre_enc_sample_rate = LittleEndian::read_u32(&id_header[12..16]);
+        let output_gain = LittleEndian::read_i16(&id_header[16..18]);
+        let _channel_mapping_family = id_header[18];
+
+        // Validate comment_header length
+        if comment_header.len() < 8 {
+            return Err(OpusSourceError::InvalidHeaderData);
+        }
+
+        // Check magic bytes for comment header
+        if comment_header[0..8] != *b"OpusTags" {
+            return Err(OpusSourceError::InvalidHeaderData);
+        }
+
+        // Parse vendor string length safely
+        if comment_header.len() < 12 {
+            return Err(OpusSourceError::InvalidHeaderData);
+        }
+        
+        let vs_len = LittleEndian::read_u32(&comment_header[8..12]);
+        
+        // Validate vendor string bounds
+        if comment_header.len() < (12 + vs_len as usize) {
+            return Err(OpusSourceError::InvalidHeaderData);
+        }
+        
         let vstring = &comment_header[12..12 + vs_len as usize];
-        let _vstring = String::from_utf8(vstring.to_vec()).unwrap();
-        //println!("Vendor String: {:?}", vstring);
+        let _vstring = String::from_utf8(vstring.to_vec())
+            .map_err(|_| OpusSourceError::InvalidHeaderData)?;
+        
         let nts = 12 + vs_len as usize;
-        let num_tags = &comment_header[nts..nts + 4];
-        let _num_tags = LittleEndian::read_u32(&num_tags);
-        //println!("Number of Tags: {}", num_tags);
-        // Pull 32bit unsigned length then matching range for utf8 text iteratively for all tags
+        if comment_header.len() < (nts + 4) {
+            return Err(OpusSourceError::InvalidHeaderData);
+        }
+        
+        let _num_tags = LittleEndian::read_u32(&comment_header[nts..nts + 4]);
 
         Ok(Self {
             sample_rate: 48_000,
-            channel_count: *channels,
+            channel_count: channels,
             preskip,
             output_gain,
         })

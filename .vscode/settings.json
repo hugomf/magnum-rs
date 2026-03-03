@@ -1,0 +1,14 @@
+{
+  "rust-analyzer.cargo.features": [
+    "with_ogg",
+    "with_rodio",
+    "with_flac",
+    "with_kira"
+  ],
+  "rust-analyzer.cargo.allFeatures": false,
+  "rust-analyzer.checkOnSave.command": "check",
+  "rust-analyzer.checkOnSave.extraArgs": [
+    "--features",
+    "with_ogg,with_rodio,with_flac,with_kira"
+  ]
+}

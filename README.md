@@ -133,13 +133,53 @@ let channels = source.metadata.channel_count;
 let sample_rate = source.metadata.sample_rate;
 ```
 
+### Runnable Examples
+
+This library includes several runnable examples in the `examples/` directory:
+
+```bash
+# Play an OGG Opus internet radio stream using Rodio
+cargo run --example stream_radio --features "with_ogg with_rodio"
+
+# Play an OGG Opus internet radio stream using Kira
+cargo run --example stream_radio_with_kira --features "with_ogg with_kira"
+
+# Play an OGG Opus internet radio stream using cpal (low-level)
+cargo run --example stream_radio_with_cpal --features "with_ogg"
+
+# Decode an OGG Opus file (prints first 1000 samples)
+cargo run --example decode_ogg --features "with_ogg with_rodio"
+
+# Decode a CAF Opus file
+cargo run --example decode_caf --features "with_caf with_rodio"
+
+# Decode a FLAC file (prints first 1000 samples)
+cargo run --example decode_flac --features "with_flac"
+
+# Play a FLAC internet radio stream using Kira
+cargo run --example stream_radio_with_flac --features "with_flac with_kira"
+
+# Inspect metadata from Opus files
+cargo run --example metadata --features "with_ogg with_caf"
+```
+
+**Note:** You'll need an actual Opus file to test the examples. You can convert audio files using:
+
+```bash
+# Create OGG Opus
+ffmpeg -i input.wav -c:a opus example.opus
+
+# Create CAF Opus (Apple Core Audio Format)
+ffmpeg -i input.wav -c:a libopus -f caf example.caf
+```
+
 ## TODOs
 
-- [ ] Tests
+- [x] Tests
 - [ ] Better Error Handling
-- [ ] Runnable Examples
+- [x] Runnable Examples
 - [ ] More Container Formats (.mkv, etc)
-- [ ] Seek support (Limited to linear playback at the moment)
+- [x] Seek support (Implemented for OGG and CAF containers)
 
 
 ## Contributing

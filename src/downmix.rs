@@ -17,7 +17,8 @@
 /// LFE (low-frequency effects) is excluded from the downmix — it would require
 /// a highpass filter to blend correctly into a stereo mix, and most content
 /// sounds better without it.
-pub const DOWNMIX: [(&[f32], &[f32]); 8] = [
+#[allow(dead_code)]
+pub(crate) const DOWNMIX: [(&[f32], &[f32]); 8] = [
     // 1ch — mono: both channels get the mono signal
     (&[1.0], &[1.0]),
 
@@ -58,7 +59,8 @@ pub const DOWNMIX: [(&[f32], &[f32]); 8] = [
 ///
 /// `input` is interleaved PCM with `channel_count` channels.
 /// Returns a new Vec<f32> with stereo interleaved samples.
-pub fn downmix_to_stereo(input: &[f32], channel_count: u8) -> Vec<f32> {
+#[allow(dead_code)]
+pub(crate) fn downmix_to_stereo(input: &[f32], channel_count: u8) -> Vec<f32> {
     debug_assert!(channel_count >= 1 && channel_count <= 8);
     let n = channel_count as usize;
 
@@ -93,9 +95,12 @@ pub fn downmix_to_stereo(input: &[f32], channel_count: u8) -> Vec<f32> {
 
 /// A decode buffer that handles fetching new chunks when empty.
 /// This is shared between OGG and CAF implementations.
-pub struct DecodeBuffer {
+#[derive(Debug)]
+pub(crate) struct DecodeBuffer {
     pub buffer: Vec<f32>,
     pub pos: usize,
+    /// Number of samples to skip at the start (pre-skip handling)
+    pub preskip_remaining: u16,
 }
 
 impl DecodeBuffer {
@@ -103,30 +108,33 @@ impl DecodeBuffer {
         Self {
             buffer: Vec::new(),
             pos: 0,
+            preskip_remaining: 0,
         }
     }
 
     /// Get the next sample, fetching a new chunk if the buffer is exhausted.
     /// Returns None when there are no more samples.
+    #[allow(dead_code)]
     pub fn next_sample<F>(&mut self, mut fetch: F) -> Option<f32>
     where
         F: FnMut() -> Option<Vec<f32>>,
     {
-        if let Some(sample) = self.buffer.get(self.pos) {
-            self.pos += 1;
-            return Some(*sample);
-        }
-
-        // Buffer exhausted, try to load more data
-        self.buffer.clear();
-        self.pos = 0;
-
-        match fetch() {
-            Some(chunk) => {
-                self.buffer = chunk;
-                self.next_sample(fetch)
+        loop {
+            if let Some(&sample) = self.buffer.get(self.pos) {
+                self.pos += 1;
+                return Some(sample);
             }
-            None => None,
+
+            // Buffer exhausted, try to load more data
+            self.buffer.clear();
+            self.pos = 0;
+
+            match fetch() {
+                Some(chunk) => {
+                    self.buffer = chunk;
+                }
+                None => return None,
+            }
         }
     }
 }

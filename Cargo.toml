@@ -3,7 +3,7 @@ name = "magnum"
 description = "Reader to Iterator/Source support for Opus Audio in common container formats. Includes optional traits for Kira and Rodio audio library playback support."
 version = "1.0.1"
 authors = ["Brent Luehr <brent@nerdcon.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 license-file = "LICENSE"
 readme = "README.md"
@@ -15,18 +15,25 @@ categories = ["multimedia::encoding", "multimedia::audio"]
 
 [features]
 with_caf = ["caf"]
-with_ogg = ["ogg"]
+with_ogg = ["ogg", "bitreader"]
+with_flac = ["flac"]
 with_rodio = ["rodio"]
 with_kira = ["kira"]
 default = ["with_caf", "with_ogg"]
-all = ["with_caf", "with_ogg", "with_rodio", "with_kira"]
+all = ["with_caf", "with_ogg", "with_flac", "with_rodio", "with_kira"]
 
 [dependencies]
 kira = { version = "0.5.3", optional = true }
 caf = { version = "0.1.0", optional = true }
 ogg = { version = "0.9", optional = true }
 rodio = { version = "0.22", optional = true }
+flac = { version = "0.5", optional = true }
 audiopus = "0.2.0"
 thiserror = "1.0.24"
 byteorder = "1.4.3"
-bitreader = "0.3.3"
+bitreader = { version = "0.3.3", optional = true }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["blocking"] }
+cpal = "0.15"
+ringbuf = "0.4"

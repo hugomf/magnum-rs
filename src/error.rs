@@ -8,6 +8,8 @@ pub enum OpusSourceError {
     InvalidContainerFormat,
     #[error("Invalid header data")]
     InvalidHeaderData,
+    #[error("Seek operation failed")]
+    SeekError,
     #[cfg(feature = "with_ogg")]
     #[error("{0}")]
     OggHeaderError(#[from] ogg::OggReadError),

@@ -1,9 +1,9 @@
-use audiopus::{coder::Decoder, Channels};
+use audiopus::{coder::Decoder, Channels, coder::GenericCtl};
 use caf::{CafChunkReader, CafPacketReader};
 use std::io::Seek;
 use std::{fmt::Debug, io::Read};
 
-use crate::{error::OpusSourceError, metadata::OpusMeta};
+use crate::{error::OpusSourceError, metadata::OpusMeta, downmix::DecodeBuffer};
 
 pub struct OpusSourceCaf<T>
 where
@@ -12,8 +12,7 @@ where
     pub metadata: OpusMeta,
     packet: CafPacketReader<T>,
     decoder: Decoder,
-    buffer: Vec<f32>,
-    buffer_pos: usize,
+    decode_buffer: DecodeBuffer,
     /// True if the source has more than 2 channels and downmixing is active.
     /// The output is always stereo (2 channels) when downmixing.
     is_downmixing: bool,
@@ -26,7 +25,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OpusSourceCaf")
             .field("metadata", &self.metadata)
-            .field("buffer_pos", &self.buffer_pos)
+            .field("decode_buffer", &self.decode_buffer)
             .field("is_downmixing", &self.is_downmixing)
             .finish_non_exhaustive()
     }
@@ -37,8 +36,8 @@ where
     T: Read + Seek,
 {
     pub fn new(file: T) -> Result<Self, OpusSourceError> {
-        let cr =
-            CafChunkReader::new(file).or_else(|_| Err(OpusSourceError::InvalidContainerFormat))?;
+        let cr = CafChunkReader::new(file)
+            .map_err(|_| OpusSourceError::InvalidContainerFormat)?;
         let packet = CafPacketReader::from_chunk_reader(cr, vec![caf::ChunkType::AudioData])
             .map_err(|_| OpusSourceError::InvalidContainerFormat)?;
 
@@ -79,8 +78,7 @@ where
                     metadata,
                     packet,
                     decoder,
-                    buffer: vec![],
-                    buffer_pos: 0,
+                    decode_buffer: DecodeBuffer::new(),
                     is_downmixing,
                 })
             } else {
@@ -94,6 +92,48 @@ where
     /// The output channel count — always 2 when downmixing, otherwise matches source.
     pub fn output_channels(&self) -> u8 {
         if self.is_downmixing { 2 } else { self.metadata.channel_count }
+    }
+
+    /// Seek to a specific sample position in the stream.
+    ///
+    /// The `sample` parameter is the absolute sample position to seek to.
+    /// Returns the actual sample position seeked to.
+    ///
+    /// Note: CAF format stores packets with a fixed number of frames per packet.
+    /// The seek will align to the nearest packet boundary.
+    pub fn seek(&mut self, sample: u64) -> Result<u64, OpusSourceError> {
+        let frames_per_packet = self.packet.audio_desc.frames_per_packet as u64;
+        let target_packet = (sample / frames_per_packet) as usize;
+        
+        // Seek to the target packet in the underlying reader
+        self.packet
+            .seek_to_packet(target_packet)
+            .map_err(|_| OpusSourceError::SeekError)?;
+
+        // Reset decoder state after seek
+        self.decoder
+            .reset_state()
+            .map_err(|_| OpusSourceError::InvalidAudioStream)?;
+
+        // Clear internal buffer state
+        self.decode_buffer.buffer.clear();
+        self.decode_buffer.pos = 0;
+
+        // Pre-load a valid chunk after seeking
+        self.decode_buffer.buffer = self.get_next_chunk().unwrap_or_default();
+
+        // Calculate actual sample position (aligned to packet boundary)
+        let actual_sample = target_packet as u64 * frames_per_packet;
+        
+        Ok(actual_sample)
+    }
+
+    /// Seek to a specific time position in the stream.
+    ///
+    /// Convenience method that converts Duration to sample position.
+    pub fn seek_duration(&mut self, position: std::time::Duration) -> Result<u64, OpusSourceError> {
+        let target_sample = (position.as_secs_f64() * self.metadata.sample_rate as f64) as u64;
+        self.seek(target_sample)
     }
 
     fn get_next_chunk(&mut self) -> Option<Vec<f32>> {
@@ -135,19 +175,22 @@ where
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Use the DecodeBuffer to handle fetching new chunks
+        // We need to avoid borrowing conflicts by handling buffer management manually
         loop {
-            // If we have data in the buffer, return the next sample
-            if let Some(sample) = self.buffer.get(self.buffer_pos) {
-                self.buffer_pos += 1;
+            if let Some(sample) = self.decode_buffer.buffer.get(self.decode_buffer.pos) {
+                self.decode_buffer.pos += 1;
                 return Some(*sample);
             }
-            
+
             // Buffer exhausted, try to load more data
-            self.buffer.clear();
-            self.buffer_pos = 0;
-            
+            self.decode_buffer.buffer.clear();
+            self.decode_buffer.pos = 0;
+
             match self.get_next_chunk() {
-                Some(chunk) => self.buffer = chunk,
+                Some(chunk) => {
+                    self.decode_buffer.buffer = chunk;
+                }
                 None => return None,
             }
         }
