@@ -17,10 +17,11 @@ categories = ["multimedia::encoding", "multimedia::audio"]
 with_caf = ["caf"]
 with_ogg = ["ogg", "bitreader"]
 with_flac = ["flac"]
+with_mkv = []
 with_rodio = ["rodio"]
 with_kira = ["kira"]
 default = ["with_caf", "with_ogg"]
-all = ["with_caf", "with_ogg", "with_flac", "with_rodio", "with_kira"]
+all = ["with_caf", "with_ogg", "with_flac", "with_mkv", "with_rodio", "with_kira"]
 
 [dependencies]
 kira = { version = "0.5.3", optional = true }

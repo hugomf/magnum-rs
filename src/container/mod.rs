@@ -6,3 +6,6 @@ pub mod ogg;
 
 #[cfg(feature = "with_flac")]
 pub mod flac;
+
+#[cfg(feature = "with_mkv")]
+pub mod mkv;

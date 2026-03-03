@@ -761,25 +761,24 @@ where
 /// The caller is responsible for detecting format first using `detect_format`
 #[derive(Debug)]
 #[allow(dead_code)]
-#[cfg(feature = "with_flac")]
 pub enum FlacSourceAuto<T: Read + Seek> {
+    #[cfg(feature = "with_flac")]
     Raw(crate::container::flac::FlacSource<T>),
     Ogg(FlacSourceOgg<T>),
 }
 
-#[cfg(feature = "with_flac")]
 impl<T: Read + Seek> Iterator for FlacSourceAuto<T> {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
+            #[cfg(feature = "with_flac")]
             FlacSourceAuto::Raw(src) => src.next(),
             FlacSourceAuto::Ogg(src) => src.next(),
         }
     }
 }
 
-#[cfg(feature = "with_flac")]
 impl<T: Read + Seek> FlacSourceAuto<T> {
     /// Create a FLAC source from a stream, auto-detecting the format
     pub fn new(mut stream: T) -> Result<Self, OpusSourceError> {
@@ -787,8 +786,15 @@ impl<T: Read + Seek> FlacSourceAuto<T> {
 
         match format {
             AudioFormat::RawFlac => {
-                crate::container::flac::FlacSource::new(stream)
-                    .map(FlacSourceAuto::Raw)
+                #[cfg(feature = "with_flac")]
+                {
+                    crate::container::flac::FlacSource::new(stream)
+                        .map(FlacSourceAuto::Raw)
+                }
+                #[cfg(not(feature = "with_flac"))]
+                {
+                    Err(OpusSourceError::InvalidContainerFormat)
+                }
             }
             AudioFormat::Ogg => {
                 // Try OGG FLAC first
@@ -807,6 +813,7 @@ impl<T: Read + Seek> FlacSourceAuto<T> {
     /// Get the sample rate of the stream
     pub fn sample_rate(&self) -> u32 {
         match self {
+            #[cfg(feature = "with_flac")]
             FlacSourceAuto::Raw(src) => src.metadata.sample_rate,
             FlacSourceAuto::Ogg(src) => src.metadata.sample_rate,
         }
@@ -815,6 +822,7 @@ impl<T: Read + Seek> FlacSourceAuto<T> {
     /// Get the channel count
     pub fn channel_count(&self) -> u8 {
         match self {
+            #[cfg(feature = "with_flac")]
             FlacSourceAuto::Raw(src) => src.metadata.channel_count,
             FlacSourceAuto::Ogg(src) => src.metadata.channel_count,
         }
@@ -823,16 +831,18 @@ impl<T: Read + Seek> FlacSourceAuto<T> {
     /// Get the output channel count (after downmixing)
     pub fn output_channels(&self) -> u8 {
         match self {
+            #[cfg(feature = "with_flac")]
             FlacSourceAuto::Raw(src) => src.output_channels(),
             FlacSourceAuto::Ogg(src) => src.output_channels(),
         }
     }
 }
 
-#[cfg(all(feature = "with_flac", feature = "with_rodio"))]
+#[cfg(feature = "with_rodio")]
 impl<T: Read + Seek> Source for FlacSourceAuto<T> {
     fn current_span_len(&self) -> Option<usize> {
         match self {
+            #[cfg(feature = "with_flac")]
             FlacSourceAuto::Raw(src) => src.current_span_len(),
             FlacSourceAuto::Ogg(src) => src.current_span_len(),
         }
@@ -840,6 +850,7 @@ impl<T: Read + Seek> Source for FlacSourceAuto<T> {
 
     fn channels(&self) -> std::num::NonZero<u16> {
         match self {
+            #[cfg(feature = "with_flac")]
             FlacSourceAuto::Raw(src) => src.channels(),
             FlacSourceAuto::Ogg(src) => src.channels(),
         }
@@ -847,6 +858,7 @@ impl<T: Read + Seek> Source for FlacSourceAuto<T> {
 
     fn sample_rate(&self) -> std::num::NonZero<u32> {
         match self {
+            #[cfg(feature = "with_flac")]
             FlacSourceAuto::Raw(src) => src.sample_rate(),
             FlacSourceAuto::Ogg(src) => src.sample_rate(),
         }
@@ -854,16 +866,18 @@ impl<T: Read + Seek> Source for FlacSourceAuto<T> {
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         match self {
+            #[cfg(feature = "with_flac")]
             FlacSourceAuto::Raw(src) => src.total_duration(),
             FlacSourceAuto::Ogg(src) => src.total_duration(),
         }
     }
 }
 
-#[cfg(all(feature = "with_flac", feature = "with_kira"))]
+#[cfg(feature = "with_kira")]
 impl<T: 'static + Read + Seek + Send + Debug> AudioStream for FlacSourceAuto<T> {
     fn next(&mut self, dt: f64) -> kira::Frame {
         match self {
+            #[cfg(feature = "with_flac")]
             FlacSourceAuto::Raw(src) => AudioStream::next(src, dt),
             FlacSourceAuto::Ogg(src) => AudioStream::next(src, dt),
         }

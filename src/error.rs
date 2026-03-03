@@ -13,6 +13,8 @@ pub enum OpusSourceError {
     #[cfg(feature = "with_ogg")]
     #[error("{0}")]
     OggHeaderError(#[from] ogg::OggReadError),
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
 }
 
 // OggReadError
