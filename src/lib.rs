@@ -7,7 +7,10 @@ pub mod metadata;
 pub use container::flac::FlacSource;
 
 #[cfg(feature = "with_ogg")]
-pub use container::ogg::{OpusSourceOgg, FlacSourceOgg, FlacSourceAuto, AudioFormat, detect_format};
+pub use container::ogg::{OpusSourceOgg, FlacSourceOgg, AudioFormat, detect_format};
+
+#[cfg(all(feature = "with_ogg", feature = "with_flac"))]
+pub use container::ogg::FlacSourceAuto;
 
 #[cfg(feature = "with_rodio")]
 pub use rodio; // Re-export rodio so examples can use the same version

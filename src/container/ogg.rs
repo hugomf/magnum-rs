@@ -761,11 +761,13 @@ where
 /// The caller is responsible for detecting format first using `detect_format`
 #[derive(Debug)]
 #[allow(dead_code)]
+#[cfg(feature = "with_flac")]
 pub enum FlacSourceAuto<T: Read + Seek> {
     Raw(crate::container::flac::FlacSource<T>),
     Ogg(FlacSourceOgg<T>),
 }
 
+#[cfg(feature = "with_flac")]
 impl<T: Read + Seek> Iterator for FlacSourceAuto<T> {
     type Item = f32;
 
@@ -777,6 +779,7 @@ impl<T: Read + Seek> Iterator for FlacSourceAuto<T> {
     }
 }
 
+#[cfg(feature = "with_flac")]
 impl<T: Read + Seek> FlacSourceAuto<T> {
     /// Create a FLAC source from a stream, auto-detecting the format
     pub fn new(mut stream: T) -> Result<Self, OpusSourceError> {
@@ -826,7 +829,7 @@ impl<T: Read + Seek> FlacSourceAuto<T> {
     }
 }
 
-#[cfg(feature = "with_rodio")]
+#[cfg(all(feature = "with_flac", feature = "with_rodio"))]
 impl<T: Read + Seek> Source for FlacSourceAuto<T> {
     fn current_span_len(&self) -> Option<usize> {
         match self {
@@ -857,7 +860,7 @@ impl<T: Read + Seek> Source for FlacSourceAuto<T> {
     }
 }
 
-#[cfg(feature = "with_kira")]
+#[cfg(all(feature = "with_flac", feature = "with_kira"))]
 impl<T: 'static + Read + Seek + Send + Debug> AudioStream for FlacSourceAuto<T> {
     fn next(&mut self, dt: f64) -> kira::Frame {
         match self {
